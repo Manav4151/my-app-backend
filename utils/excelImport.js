@@ -1,6 +1,6 @@
 import xlsx from 'xlsx';
 import Book from '../models/book.schema.js';
-
+import path from "path";
 // Map Excel headers → Schema fields
 const headerMap = {
     "ISBN": "isbn",
@@ -26,32 +26,41 @@ const headerMap = {
  */
 async function findExistingBook(bookData) {
     try {
-        // First try to find by ISBN if available
-        if (bookData.isbn && bookData.isbn.trim() !== '') {
-            const existingByISBN = await Book.findOne({ isbn: bookData.isbn.trim() });
-            if (existingByISBN) {
-                return existingByISBN;
+        // Treat (source + ISBN/title) as unique. First try ISBN + source
+        if (bookData.isbn && bookData.isbn.trim() !== '' && bookData.source) {
+            const existingByISBNAndSource = await Book.findOne({
+                isbn: bookData.isbn.trim(),
+                source: bookData.source
+            });
+            if (existingByISBNAndSource) {
+                return existingByISBNAndSource;
             }
         }
 
-        // If no ISBN match, try to find by title and author combination
-        if (bookData.title && bookData.title.trim() !== '' && bookData.author && bookData.author.trim() !== '') {
-            const existingByTitleAuthor = await Book.findOne({
+        // Next try title+author+source
+        if (
+            bookData.title && bookData.title.trim() !== '' &&
+            bookData.author && bookData.author.trim() !== '' &&
+            bookData.source
+        ) {
+            const existingByTitleAuthorSource = await Book.findOne({
                 title: { $regex: new RegExp(`^${bookData.title.trim()}$`, 'i') },
-                author: { $regex: new RegExp(`^${bookData.author.trim()}$`, 'i') }
+                author: { $regex: new RegExp(`^${bookData.author.trim()}$`, 'i') },
+                source: bookData.source
             });
-            if (existingByTitleAuthor) {
-                return existingByTitleAuthor;
+            if (existingByTitleAuthorSource) {
+                return existingByTitleAuthorSource;
             }
         }
 
-        // If still no match, try just by title (case-insensitive)
-        if (bookData.title && bookData.title.trim() !== '') {
-            const existingByTitle = await Book.findOne({
-                title: { $regex: new RegExp(`^${bookData.title.trim()}$`, 'i') }
+        // Finally try title+source
+        if (bookData.title && bookData.title.trim() !== '' && bookData.source) {
+            const existingByTitleSource = await Book.findOne({
+                title: { $regex: new RegExp(`^${bookData.title.trim()}$`, 'i') },
+                source: bookData.source
             });
-            if (existingByTitle) {
-                return existingByTitle;
+            if (existingByTitleSource) {
+                return existingByTitleSource;
             }
         }
 
@@ -79,10 +88,10 @@ async function getNextBookId() {
 /**
  * Process and clean book data from Excel row
  * @param {Object} row - Raw Excel row data
- * @param {String} sheetName - Name of the Excel sheet
+ * @param {String} sourceName - Original Excel filename without extension
  * @returns {Object} - Cleaned book data
  */
-function processBookData(row, sheetName) {
+function processBookData(row, sourceName) {
     let obj = {};
 
     // Apply header mapping
@@ -111,8 +120,8 @@ function processBookData(row, sheetName) {
         obj.price = !isNaN(priceNum) ? priceNum : null;
     }
 
-    // Always add source = sheet name
-    obj.source = sheetName;
+    // Always add source = original Excel filename (without extension)
+    obj.source = sourceName;
 
     return obj;
 }
@@ -120,17 +129,17 @@ function processBookData(row, sheetName) {
 /**
  * Import Excel data with duplicate checking and upsert logic
  * @param {String} filePath - Path to the Excel file
+ * @param {String} originalNameWithoutExt - Original Excel filename without extension
  * @returns {Object} - Import results with statistics
  */
-async function importExcel(filePath) {
+async function importExcel(filePath, originalNameWithoutExt) {
     try {
         console.log("🚀 Starting Excel import...");
 
         const workbook = xlsx.readFile(filePath);
         const sheetName = workbook.SheetNames[0];
         const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-        console.log(`📊 Found ${sheetData.length} rows in sheet: ${sheetName}`);
+        console.log(`📊 Found ${sheetData.length} rows in sheet: ${sheetName} | source: ${originalNameWithoutExt}`);
 
         let stats = {
             total: sheetData.length,
@@ -152,7 +161,7 @@ async function importExcel(filePath) {
                 }
 
                 // Process the row data
-                const bookData = processBookData(row, sheetName);
+                const bookData = processBookData(row, originalNameWithoutExt);
 
                 // Skip if no essential data (title or ISBN)
                 if (!bookData.title && !bookData.isbn) {
@@ -165,15 +174,15 @@ async function importExcel(filePath) {
                 const existingBook = await findExistingBook(bookData);
 
                 if (existingBook) {
-                    // Update existing book
+                    // Update existing record for the same source
                     const updatedBook = await Book.findByIdAndUpdate(
                         existingBook._id,
-                        { ...bookData, book_id: existingBook.book_id }, // Keep original book_id
+                        { ...bookData, book_id: existingBook.book_id },
                         { new: true, runValidators: true }
                     );
 
                     stats.updated++;
-                    console.log(`✅ Updated book: ${bookData.title || bookData.isbn} (ID: ${existingBook.book_id})`);
+                    console.log(`✅ Updated book (source: ${bookData.source}): ${bookData.title || bookData.isbn} (ID: ${existingBook.book_id})`);
                 } else {
                     // Insert new book
                     const nextBookId = await getNextBookId();
@@ -183,7 +192,7 @@ async function importExcel(filePath) {
                     await newBook.save();
 
                     stats.inserted++;
-                    console.log(`➕ Inserted new book: ${bookData.title || bookData.isbn} (ID: ${nextBookId})`);
+                    console.log(`➕ Inserted new book (source: ${bookData.source}): ${bookData.title || bookData.isbn} (ID: ${nextBookId})`);
                 }
 
             } catch (error) {

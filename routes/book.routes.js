@@ -2,7 +2,7 @@ import { Router } from 'express';
 const router = Router();
 // import { createBook, getAllBooks, getBookById, updateBook, deleteBook, bulkImportBooks } from '../controllers/book.controller.js';
 import uploadMiddleware from '../middleware/upload.middleware.js';
-import { checkBookStatus, createOrUpdateBook, deleteBook, deleteBookPricing, deleteMultipleBooks, getBookPricing, getBooks } from '../controllers/book.controller.js';
+import { checkBookStatus, createOrUpdateBook, deleteBook, deleteBookPricing, deleteMultipleBooks, getBookPricing, getBooks, updateBook } from '../controllers/book.controller.js';
 
 // Chained route for getting all books and creating a new book
 // Route for checking if a book exists and what action to take
@@ -23,6 +23,9 @@ router.post('/', createOrUpdateBook);
 
 router.get('/', getBooks); // GET /api/books
 router.get('/:bookId/pricing', getBookPricing);
+
+// Update route
+router.put('/:bookId', updateBook); // PUT /api/books/some_id (updates book and optionally pricing)
 
 // Delete routes
 // router.delete('/:bookId', deleteBook); // DELETE /api/books/some_id (deletes book and all its pricing)

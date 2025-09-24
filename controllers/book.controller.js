@@ -574,6 +574,81 @@ export const deleteBookPricing = async (req, res) => {
   }
 };
 
+// --- UPDATE BOOK DIRECTLY ---
+export const updateBook = async (req, res) => {
+  const { bookId } = req.params;
+  const { bookData, pricingData } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(bookId)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid book ID format.'
+    });
+  }
+
+  if (!bookData) {
+    return res.status(400).json({
+      success: false,
+      message: 'Book data is required for update.'
+    });
+  }
+
+  try {
+    // Check if book exists
+    const existingBook = await Book.findById(bookId);
+    if (!existingBook) {
+      return res.status(404).json({
+        success: false,
+        message: 'Book not found.'
+      });
+    }
+
+    // Update the book
+    const updatedBook = await Book.findByIdAndUpdate(
+      bookId, 
+      bookData, 
+      { new: true, runValidators: true }
+    );
+
+    let updatedPricing = null;
+    
+    // If pricing data is provided, update or create pricing
+    if (pricingData) {
+      const existingPricing = await BookPricing.findOne({
+        book: bookId,
+        source: pricingData.source
+      });
+
+      if (existingPricing) {
+        // Update existing pricing
+        updatedPricing = await BookPricing.findByIdAndUpdate(
+          existingPricing._id,
+          pricingData,
+          { new: true }
+        );
+      } else {
+        // Create new pricing
+        updatedPricing = new BookPricing({ ...pricingData, book: bookId });
+        await updatedPricing.save();
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Book updated successfully.',
+      book: updatedBook,
+      pricing: updatedPricing
+    });
+  } catch (error) {
+    console.error('Error updating book:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating book.',
+      error: error.message
+    });
+  }
+};
+
 export const deleteMultipleBooks = async (req, res) => {
   logger.info('Deleting multiple books', req.body);
   const { bookIds } = req.body;

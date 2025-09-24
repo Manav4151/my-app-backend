@@ -16,7 +16,7 @@ export const checkBookStatus = async (req, res) => {
       return res.status(400).json({ message: "bookData and pricingData are required" });
     }
 
-    const { isbn, title, author } = bookData;
+    const { isbn, other_code, title, author } = bookData;
     const { source } = pricingData;
 
     let existingBook = null;
@@ -85,11 +85,64 @@ export const checkBookStatus = async (req, res) => {
       }
     }
 
-    // 🔹 2) If ISBN not found OR not present → check Title + Author
+    // 🔹 2) If ISBN not found OR not present → check by other_code first, then Title + Author
     if (!existingBook) {
-      existingBook = await Book.findOne({
-        title: new RegExp(`^${title}$`, "i"),
-      });
+      // Check by other_code if present
+      if (other_code) {
+        existingBook = await Book.findOne({ other_code });
+        
+        if (existingBook) {
+          const sameTitle = existingBook.title.toLowerCase() === title.toLowerCase();
+          const sameAuthor = existingBook.author.toLowerCase() === author.toLowerCase();
+
+          if (sameTitle && sameAuthor) {
+            const sameYear = existingBook.year === bookData.year;
+            const samePublisher = existingBook.publisher_name === bookData.publisher_name;
+
+            if (sameYear && samePublisher) {
+              response = {
+                status: "DUPLICATE",
+                message: "Book already exists with same other_code, title, and author.",
+                existingBook,
+              };
+            } else {
+              response = {
+                status: "DUPLICATE",
+                message:
+                  "Book already exists with same other_code, title, and author. But year OR publisher name different",
+                existingBook,
+                conflictFields: {
+                  year: { old: existingBook.year, new: bookData.year },
+                  publisher_name: {
+                    old: existingBook.publisher_name,
+                    new: bookData.publisher_name,
+                  },
+                },
+              };
+            }
+            return await handlePricingCheck(res, existingBook, pricingData, response);
+          } else {
+            response = {
+              status: "CONFLICT",
+              message: "Same other_code found but Title/Author differ.",
+              existingBook,
+              newData: bookData,
+              conflictFields: {
+                title: !sameTitle ? { old: existingBook.title, new: title } : null,
+                author: !sameAuthor ? { old: existingBook.author, new: author } : null,
+              },
+            };
+            return res.json(response);
+          }
+        }
+      }
+      
+      // If no match by other_code, check by Title + Author
+      if (!existingBook) {
+        existingBook = await Book.findOne({
+          title: new RegExp(`^${title}$`, "i"),
+        });
+      }
 
       if (existingBook) {
         const sameAuthor = existingBook.author.toLowerCase() === author.toLowerCase();
@@ -101,18 +154,20 @@ export const checkBookStatus = async (req, res) => {
           if (sameYear && samePublisher) {
             response = {
               status: "DUPLICATE",
-              message: "Book already exists with same Title and Author. But Isbn different or not provided.",
+              message: "Book already exists with same Title and Author. But ISBN/other_code different or not provided.",
               existingBook,
               isbn: { old: existingBook.isbn, new: bookData.isbn },
+              other_code: { old: existingBook.other_code, new: bookData.other_code },
             };
           } else {
             response = {
               status: "DUPLICATE",
               message:
-                "Book already exists with same Title and Author. No isbn provided. But year OR publisher name different",
+                "Book already exists with same Title and Author. No ISBN/other_code provided. But year OR publisher name different",
               existingBook,
               conflictFields: {
                 isbn: { old: existingBook.isbn, new: bookData.isbn },
+                other_code: { old: existingBook.other_code, new: bookData.other_code },
                 year: { old: existingBook.year, new: bookData.year },
                 publisher_name: {
                   old: existingBook.publisher_name,

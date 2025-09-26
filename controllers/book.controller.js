@@ -2,6 +2,7 @@ import Book from '../models/book.schema.js';
 import BookPricing from '../models/BookPricing.js';
 import mongoose from 'mongoose';
 import importExcel from '../utils/excelImport.js';
+import { validateExcelMapping, bulkImportExcel } from '../utils/bulkImport.js';
 import path from 'path';
 import { log } from 'console';
 import { logger } from '../lib/logger.js';
@@ -758,4 +759,141 @@ export const deleteMultipleBooks = async (req, res) => {
     results,
     errors
   });
+};
+
+// --- VALIDATE EXCEL MAPPING ---
+export const validateExcelFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Excel file uploaded'
+      });
+    }
+
+    const filePath = req.file.path;
+    const originalName = path.basename(req.file.originalname, path.extname(req.file.originalname));
+
+    logger.info('Validating Excel file mapping', { 
+      fileName: req.file.originalname, 
+      filePath 
+    });
+
+    const validationResult = await validateExcelMapping(filePath);
+
+    if (!validationResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: validationResult.message,
+        error: validationResult.error
+      });
+    }
+
+    // Clean up uploaded file after validation
+    try {
+      const fs = await import('fs');
+      fs.unlinkSync(filePath);
+    } catch (cleanupError) {
+      logger.warn('Could not clean up validation file:', cleanupError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Excel file validation completed',
+      data: {
+        fileName: req.file.originalname,
+        headers: validationResult.headers,
+        mapping: validationResult.mapping,
+        unmappedHeaders: validationResult.unmappedHeaders,
+        suggestedMapping: validationResult.suggestedMapping,
+        validation: validationResult.validation
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error validating Excel file:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during Excel validation',
+      error: error.message
+    });
+  }
+};
+
+// --- BULK IMPORT EXCEL ---
+export const bulkImportExcelFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Excel file uploaded'
+      });
+    }
+
+    const { mapping, options } = req.body;
+    
+    if (!mapping || typeof mapping !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Column mapping is required'
+      });
+    }
+
+    const filePath = req.file.path;
+    const originalName = path.basename(req.file.originalname, path.extname(req.file.originalname));
+
+    logger.info('Starting bulk Excel import', { 
+      fileName: req.file.originalname, 
+      filePath,
+      mapping,
+      options 
+    });
+
+    // Parse options if provided as string
+    let importOptions = {};
+    if (options) {
+      try {
+        importOptions = typeof options === 'string' ? JSON.parse(options) : options;
+      } catch (parseError) {
+        logger.warn('Could not parse import options, using defaults:', parseError);
+      }
+    }
+
+    const importResult = await bulkImportExcel(filePath, mapping, originalName, importOptions);
+
+    if (!importResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: importResult.message,
+        error: importResult.error
+      });
+    }
+
+    // Clean up uploaded file after import
+    try {
+      const fs = await import('fs');
+      fs.unlinkSync(filePath);
+    } catch (cleanupError) {
+      logger.warn('Could not clean up import file:', cleanupError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Bulk import completed successfully',
+      data: {
+        fileName: req.file.originalname,
+        stats: importResult.stats,
+        summary: importResult.summary,
+        logFile: importResult.logFile
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error during bulk Excel import:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during bulk import',
+      error: error.message
+    });
+  }
 };

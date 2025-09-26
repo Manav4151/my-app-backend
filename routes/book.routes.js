@@ -2,7 +2,7 @@ import { Router } from 'express';
 const router = Router();
 // import { createBook, getAllBooks, getBookById, updateBook, deleteBook, bulkImportBooks } from '../controllers/book.controller.js';
 import uploadMiddleware from '../middleware/upload.middleware.js';
-import { checkBookStatus, createOrUpdateBook, deleteBook, deleteBookPricing, deleteMultipleBooks, getBookPricing, getBooks, updateBook } from '../controllers/book.controller.js';
+import { checkBookStatus, createOrUpdateBook, deleteBook, deleteBookPricing, deleteMultipleBooks, getBookPricing, getBooks, updateBook, validateExcelFile, bulkImportExcelFile } from '../controllers/book.controller.js';
 
 // Chained route for getting all books and creating a new book
 // Route for checking if a book exists and what action to take
@@ -31,4 +31,9 @@ router.put('/:bookId', updateBook); // PUT /api/books/some_id (updates book and 
 // router.delete('/:bookId', deleteBook); // DELETE /api/books/some_id (deletes book and all its pricing)
 router.delete('/pricing/:pricingId', deleteBookPricing); // DELETE /api/books/pricing/some_pricing_id (deletes specific pricing)
 router.delete('/bulk', deleteMultipleBooks); // DELETE /api/books/bulk (deletes multiple books and their pricing)
+
+// Bulk import routes
+router.post('/validate-excel', uploadMiddleware, validateExcelFile); // POST /api/books/validate-excel (validate Excel column mapping)
+router.post('/bulk-import', uploadMiddleware, bulkImportExcelFile); // POST /api/books/bulk-import (bulk import Excel data)
+
 export default router;
